@@ -8,6 +8,11 @@ import org.photonvision.PhotonCamera;
 import org.photonvision.targeting.PhotonPipelineResult;
 import org.photonvision.targeting.PhotonTrackedTarget;
 
+import edu.wpi.first.wpilibj.PneumaticsControlModule;
+import edu.wpi.first.wpilibj.PneumaticsModuleType;
+import edu.wpi.first.wpilibj.DoubleSolenoid.*;
+import edu.wpi.first.wpilibj.DoubleSolenoid;
+
 import edu.wpi.first.wpilibj.Joystick;
 import edu.wpi.first.wpilibj.TimedRobot;
 import edu.wpi.first.wpilibj.drive.DifferentialDrive;
@@ -30,7 +35,7 @@ public class Robot extends TimedRobot {
   private String m_autoSelected;
   private final SendableChooser<String> m_chooser = new SendableChooser<>();
 
-  Joystick armJoystick = new Joystick(3);
+  Joystick operatorJoystick = new Joystick(3);
   Joystick leftJoystick = new Joystick(1);
   Joystick rightJoystick = new Joystick(0);
   
@@ -38,8 +43,6 @@ public class Robot extends TimedRobot {
   Spark driveMotor2 = new Spark(1);
   Spark driveMotor3 = new Spark(2);
   Spark driveMotor4 = new Spark(3);
-
-  Spark armMotor1 = new Spark(4);
 
   MotorControllerGroup leftDriveMoters = new MotorControllerGroup(driveMotor1, driveMotor2);
   MotorControllerGroup rightDriveMoters = new MotorControllerGroup(driveMotor3, driveMotor4);
@@ -51,13 +54,16 @@ public class Robot extends TimedRobot {
 
   Double yaw; Double pitch; int aprilTagID;
 
+  PneumaticsControlModule pcm = new PneumaticsControlModule(0);
+	DoubleSolenoid piston_1 = new DoubleSolenoid(0, PneumaticsModuleType.CTREPCM, 4, 5);
+
   private final AnalogInput ultrasonic = new AnalogInput(0);
 
-	private final DigitalOutput ultrasonicPin_1 = new DigitalOutput(0);
+	private final DigitalOutput ultrasonicPin_1 = new DigitalOutput(9);
 
 	short currentDistanceInches;
 
-  Thread armThread; Boolean isOn = true;
+  Thread operatorThread; Boolean isOn = true; int x = 1;
   /**
    * This function is run when the robot is first started up and should be used for any
    * initialization code.
@@ -68,6 +74,8 @@ public class Robot extends TimedRobot {
     m_chooser.addOption("My Auto", kCustomAuto);
     SmartDashboard.putData("Auto choices", m_chooser);
     leftDriveMoters.setInverted(true);
+    pcm.enableCompressorDigital();
+    //pcm.disableCompressor();
   }
 
   /**
@@ -108,32 +116,10 @@ public class Robot extends TimedRobot {
         break;
       case kDefaultAuto:
       default:
-      currentDistanceInches = (short) Math.round(Distance.distCalc(ultrasonic.getValue()));
-      System.out.println("Object distance in inches: " + currentDistanceInches);
-      result = camera.getLatestResult();
-       if (currentDistanceInches > 20.5) {
-        if (result.hasTargets()) {
-          if (camera.getPipelineIndex() == 0) {
-            target = result.getBestTarget();
-            yaw = target.getYaw();
-            pitch = target.getPitch();
-            System.out.println("Yaw: " + yaw + " / Pitch: " + pitch);
-          } else if (camera.getPipelineIndex() == 2) {
-              target = result.getBestTarget();
-              yaw = target.getYaw();
-              pitch = target.getPitch();
-              aprilTagID = target.getFiducialId();
-              System.out.println("Yaw: " + yaw + " / Pitch: " + pitch + " AprilTagID: " + aprilTagID);
-          } if (yaw <= -6.667) {
-            driveTrain.tankDrive(-0.20, 0.20);
-          } else if (yaw > -6.667 && yaw <= 6.666) {
-            driveTrain.tankDrive(0.20, 0.20);
-          } else if (yaw > 6.666 && yaw <= 30.0) {
-            driveTrain.tankDrive(0.20, -0.20);
-          }
-        } else {
-          driveTrain.tankDrive(0, 0);
-        }
+        currentDistanceInches = (short) Math.round(Distance.distCalc(ultrasonic.getValue()));
+        System.out.println("Object distance in inches: " + currentDistanceInches);
+        if (currentDistanceInches > 21 && x != 0) {
+          x = goToAprilTag(currentDistanceInches);
       }
     }
   }
@@ -141,13 +127,21 @@ public class Robot extends TimedRobot {
   /** This function is called once when teleop is enabled. */
   @Override
   public void teleopInit() {
-    armThread = new Thread(() -> {
+    isOn = true;
+    operatorThread = new Thread(() -> {
       while (isOn) {
         //Put Arm Code Here
+        if (leftJoystick.getRawButton(6)) {
+          piston_1.set(Value.kForward);
+        } else if (leftJoystick.getRawButton(5)) {
+          piston_1.set(Value.kReverse);
+        } else {
+          piston_1.set(Value.kOff);
+        }
       }
     });
-    armThread.setDaemon(true);
-    armThread.start();
+    operatorThread.setDaemon(true);
+    operatorThread.start();
   }
 
   /** This function is called periodically during operator control. */
@@ -159,7 +153,9 @@ public class Robot extends TimedRobot {
 
   /** This function is called once when the robot is disabled. */
   @Override
-  public void disabledInit() {}
+  public void disabledInit() {
+    isOn = false;
+  }
 
   /** This function is called periodically when disabled. */
   @Override
@@ -180,4 +176,34 @@ public class Robot extends TimedRobot {
   /** This function is called periodically whilst in simulation. */
   @Override
   public void simulationPeriodic() {}
+
+  public int goToAprilTag(short currentDistanceInches) {
+    result = camera.getLatestResult();
+     if (currentDistanceInches > 21) {
+      if (result.hasTargets()) {
+        if (camera.getPipelineIndex() == 0) {
+          target = result.getBestTarget();
+          yaw = target.getYaw();
+          pitch = target.getPitch();
+          System.out.println("Yaw: " + yaw + " / Pitch: " + pitch);
+        } else if (camera.getPipelineIndex() == 2) {
+            target = result.getBestTarget();
+            yaw = target.getYaw();
+            pitch = target.getPitch();
+            aprilTagID = target.getFiducialId();
+            System.out.println("Yaw: " + yaw + " / Pitch: " + pitch + " AprilTagID: " + aprilTagID);
+        } if (yaw <= -6.667) {
+          driveTrain.tankDrive(-0.20, 0.20);
+        } else if (yaw > -6.667 && yaw <= 6.666) {
+          driveTrain.tankDrive(0.20, 0.20);
+        } else if (yaw > 6.666 && yaw <= 30.0) {
+          driveTrain.tankDrive(0.20, -0.20);
+        }
+      } else {
+        driveTrain.tankDrive(0, 0);
+        return 0;
+      }
+    }
+    return 1;
+  }
 }
