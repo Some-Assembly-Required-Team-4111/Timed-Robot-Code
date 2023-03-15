@@ -4,7 +4,11 @@
 
 package frc.robot;
 
+
+import edu.wpi.first.math.util.Units;
+
 import org.photonvision.PhotonCamera;
+import org.photonvision.PhotonUtils;
 import org.photonvision.targeting.PhotonPipelineResult;
 import org.photonvision.targeting.PhotonTrackedTarget;
 
@@ -15,11 +19,13 @@ import edu.wpi.first.wpilibj.DoubleSolenoid;
 
 import edu.wpi.first.wpilibj.Joystick;
 import edu.wpi.first.wpilibj.TimedRobot;
+import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj.drive.DifferentialDrive;
 import edu.wpi.first.wpilibj.motorcontrol.MotorControllerGroup;
 import edu.wpi.first.wpilibj.motorcontrol.Spark;
 import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
+import edu.wpi.first.wpilibj2.command.PrintCommand;
 import edu.wpi.first.wpilibj.AnalogInput;
 import edu.wpi.first.wpilibj.DigitalOutput;
 
@@ -35,7 +41,7 @@ public class Robot extends TimedRobot {
   private String m_autoSelected;
   private final SendableChooser<String> m_chooser = new SendableChooser<>();
 
-  Joystick operatorJoystick = new Joystick(3);
+  Joystick operatorJoystick = new Joystick(2);
   Joystick leftJoystick = new Joystick(1);
   Joystick rightJoystick = new Joystick(0);
   
@@ -51,19 +57,24 @@ public class Robot extends TimedRobot {
 
   PhotonCamera camera = new PhotonCamera("Logitech,_Inc._Webcam_C310");
   PhotonPipelineResult result; PhotonTrackedTarget target;
+  Double yaw; Double pitch; int aprilTagID; 
 
-  Double yaw; Double pitch; int aprilTagID;
+  final double camera_height_meters = Units.inchesToMeters(6.25);
+  final double target_height_meters = Units.feetToMeters(1.225);
+  final double camera_pitch_radians = Units.degreesToRadians(20);
+
+  double range;
+  double restrictValue = 1;
+  boolean restrict = false;
 
   PneumaticsControlModule pcm = new PneumaticsControlModule(0);
 	DoubleSolenoid piston_1 = new DoubleSolenoid(0, PneumaticsModuleType.CTREPCM, 4, 5);
 
   private final AnalogInput ultrasonic = new AnalogInput(0);
-
 	private final DigitalOutput ultrasonicPin_1 = new DigitalOutput(9);
+  short currentDistanceInches;
 
-	short currentDistanceInches;
-
-  Thread operatorThread; Boolean isOn = true; int x = 1;
+  Thread operatorThread; Boolean isOn = true; int kX1 = 1; Boolean kX2 = false;
   /**
    * This function is run when the robot is first started up and should be used for any
    * initialization code.
@@ -75,7 +86,7 @@ public class Robot extends TimedRobot {
     SmartDashboard.putData("Auto choices", m_chooser);
     leftDriveMoters.setInverted(true);
     pcm.enableCompressorDigital();
-    //pcm.disableCompressor();
+    //pcm.enableCompressorAnalog(kDefaultPeriod, x);
   }
 
   /**
@@ -100,16 +111,28 @@ public class Robot extends TimedRobot {
    */
   @Override
   public void autonomousInit() {
+    
+   //driveTrain.tankDrive(0.7, -0.7);
+
+    //Timer.delay(5);
     m_autoSelected = m_chooser.getSelected();
     // m_autoSelected = SmartDashboard.getString("Auto Selector", kDefaultAuto);
     System.out.println("Auto selected: " + m_autoSelected);
     camera.setPipelineIndex(2);
     ultrasonicPin_1.set(true);
+    
   }
 
   /** This function is called periodically during autonomous. */
+  int i = 0;
+  int maxValue = 200000;
   @Override
   public void autonomousPeriodic() {
+    while (i != maxValue) {
+    driveTrain.tankDrive(0.7, -0.7);
+    i++;
+  }
+  if(i == maxValue){
     switch (m_autoSelected) {
       case kCustomAuto:
         // Put custom auto code here
@@ -118,8 +141,12 @@ public class Robot extends TimedRobot {
       default:
         currentDistanceInches = (short) Math.round(Distance.distCalc(ultrasonic.getValue()));
         System.out.println("Object distance in inches: " + currentDistanceInches);
-        if (currentDistanceInches > 21 && x != 0) {
-          x = goToAprilTag(currentDistanceInches);
+        if (kX2 != true) {
+          kX2 = goBackwards(currentDistanceInches);
+        }
+        if (kX1 != 0) {
+          kX1 = goToAprilTag(range);
+        }
       }
     }
   }
@@ -142,12 +169,30 @@ public class Robot extends TimedRobot {
     });
     operatorThread.setDaemon(true);
     operatorThread.start();
+    
+    
+
   }
 
   /** This function is called periodically during operator control. */
   @Override
   public void teleopPeriodic() {
-    driveTrain.tankDrive(leftJoystick.getY(), rightJoystick.getY());
+    
+    
+
+    /*if(rightJoystick.getRawButton(3) && !restrict) {
+      restrict = true;
+      restrictValue = 0.25;
+      System.out.println("restricted");
+    } else if (rightJoystick.getRawButton(3) && restrict) {
+      restrict = false;
+      restrictValue = 1;
+      System.out.println("not restricted");
+    }*/
+
+    restrictValue = 0.8;
+
+    driveTrain.tankDrive(leftJoystick.getY() * restrictValue, rightJoystick.getY() * restrictValue);
 
   }
 
@@ -177,10 +222,11 @@ public class Robot extends TimedRobot {
   @Override
   public void simulationPeriodic() {}
 
-  public int goToAprilTag(short currentDistanceInches) {
+  public int goToAprilTag(double range) {
     result = camera.getLatestResult();
-     if (currentDistanceInches > 21) {
       if (result.hasTargets()) {
+        range = Units.metersToFeet(PhotonUtils.calculateDistanceToTargetMeters(camera_height_meters,target_height_meters,camera_pitch_radians,Units.degreesToRadians(result.getBestTarget().getPitch())));
+        System.out.println("The distance to the target in feet is: " + range);
         if (camera.getPipelineIndex() == 0) {
           target = result.getBestTarget();
           yaw = target.getYaw();
@@ -192,18 +238,27 @@ public class Robot extends TimedRobot {
             pitch = target.getPitch();
             aprilTagID = target.getFiducialId();
             System.out.println("Yaw: " + yaw + " / Pitch: " + pitch + " AprilTagID: " + aprilTagID);
-        } if (yaw <= -6.667) {
-          driveTrain.tankDrive(-0.20, 0.20);
-        } else if (yaw > -6.667 && yaw <= 6.666) {
-          driveTrain.tankDrive(0.20, 0.20);
-        } else if (yaw > 6.666 && yaw <= 30.0) {
-          driveTrain.tankDrive(0.20, -0.20);
+        } if (range > 1) {
+            if (yaw <= -6.667) {
+              driveTrain.tankDrive(-0.20, 0.20);
+            } else if (yaw > -6.667 && yaw <= 6.666) {
+              driveTrain.tankDrive(0.20, 0.20);
+            } else if (yaw > 6.666 && yaw <= 30.0) {
+              driveTrain.tankDrive(0.20, -0.20);
+          }
+        } else {
+          driveTrain.tankDrive(0, 0);
+          return 0;
         }
       } else {
         driveTrain.tankDrive(0, 0);
-        return 0;
-      }
+        return 1;
     }
     return 1;
+  }
+
+  public boolean goBackwards(short CurrentDistanceInches) {
+    if (CurrentDistanceInches >)
+    return true;
   }
 }
