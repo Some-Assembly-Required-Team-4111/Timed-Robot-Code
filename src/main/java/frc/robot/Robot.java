@@ -74,7 +74,9 @@ public class Robot extends TimedRobot {
 	private final DigitalOutput ultrasonicPin_1 = new DigitalOutput(9);
   short currentDistanceInches;
 
-  Thread operatorThread; Boolean isOn = true; int kX1 = 1; Boolean kX2 = false;
+  Thread operatorThread; Boolean isOnOperator = true; 
+  
+  int kX1 = 1; int kX2 = 1;
   /**
    * This function is run when the robot is first started up and should be used for any
    * initialization code.
@@ -132,20 +134,19 @@ public class Robot extends TimedRobot {
     driveTrain.tankDrive(0.7, -0.7);
     i++;
   }
-  if(i == maxValue){
+  if (i == maxValue){
     switch (m_autoSelected) {
       case kCustomAuto:
         // Put custom auto code here
         break;
       case kDefaultAuto:
       default:
-        currentDistanceInches = (short) Math.round(Distance.distCalc(ultrasonic.getValue()));
-        System.out.println("Object distance in inches: " + currentDistanceInches);
-        if (kX2 != true) {
-          kX2 = goBackwards(currentDistanceInches);
-        }
-        if (kX1 != 0) {
-          kX1 = goToAprilTag(range);
+        if (kX2 == 1) {
+          kX2 = goBackwards();
+          System.out.println("Entered Go Backwards");
+        } if (kX1 > kX2) {
+            kX1 = goToAprilTag(range);
+            System.out.println("Entered Go To Apriltag");
         }
       }
     }
@@ -154,9 +155,9 @@ public class Robot extends TimedRobot {
   /** This function is called once when teleop is enabled. */
   @Override
   public void teleopInit() {
-    isOn = true;
+    isOnOperator = true;
     operatorThread = new Thread(() -> {
-      while (isOn) {
+      while (isOnOperator) {
         //Put Arm Code Here
         if (leftJoystick.getRawButton(6)) {
           piston_1.set(Value.kForward);
@@ -169,9 +170,6 @@ public class Robot extends TimedRobot {
     });
     operatorThread.setDaemon(true);
     operatorThread.start();
-    
-    
-
   }
 
   /** This function is called periodically during operator control. */
@@ -199,7 +197,7 @@ public class Robot extends TimedRobot {
   /** This function is called once when the robot is disabled. */
   @Override
   public void disabledInit() {
-    isOn = false;
+    isOnOperator = false;
   }
 
   /** This function is called periodically when disabled. */
@@ -257,8 +255,19 @@ public class Robot extends TimedRobot {
     return 1;
   }
 
-  public boolean goBackwards(short CurrentDistanceInches) {
-    if (CurrentDistanceInches >)
-    return true;
+  public int goBackwards() {
+    while (kX2 == 1) {
+      currentDistanceInches = (short) Math.round(Distance.distCalc(ultrasonic.getValue()));
+      System.out.println("Object distance in inches: " + currentDistanceInches);
+      if (currentDistanceInches > 30) {
+        driveTrain.tankDrive(-0.5, -0.5);
+      } else {
+        driveTrain.tankDrive(0.5, 0.5);
+        for(int i = 0; i < 25000;) {}
+        driveTrain.tankDrive(0,0);
+        return 0;
+      }
+    }
+    return 0;
   }
 }
